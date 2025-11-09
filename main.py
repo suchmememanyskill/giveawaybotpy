@@ -7,6 +7,18 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import os
+import logging
+import sys
+
+# Set up logging to stdout only
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[handler]
+)
+logger = logging.getLogger('giftbot')
 
 # Bot setup
 intents = discord.Intents.default()
@@ -95,11 +107,11 @@ class NumberGuessBot:
                     for channel_id_str, game_data in data.items():
                         channel_id = int(channel_id_str)
                         self.games[channel_id] = GameState.from_dict(game_data)
-                print(f"Loaded {len(self.games)} game states from {DATA_FILE}")
+                logger.info(f"Loaded {len(self.games)} game states from {DATA_FILE}")
             except Exception as e:
-                print(f"Error loading state: {e}")
+                logger.error(f"Error loading state: {e}", exc_info=True)
         else:
-            print(f"No existing state file found, starting fresh")
+            logger.info(f"No existing state file found, starting fresh")
     
     def save_state(self):
         """Save game states to JSON file"""
@@ -109,7 +121,7 @@ class NumberGuessBot:
             with open(DATA_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"Error saving state: {e}")
+            logger.error(f"Error saving state: {e}", exc_info=True)
     
     def get_or_create_game(self, channel_id: int) -> GameState:
         """Get existing game state or create new one for channel"""
@@ -157,7 +169,7 @@ class NumberGuessBot:
         
         # Check if this is a better guess
         if game.closest_offset is None or offset < game.closest_offset:
-            print(f"Game progressed: {game.closest_offset} -> {offset}, by {message.author.name}")
+            logger.info(f"Game progressed: {game.closest_offset} -> {offset}, by {message.author.name} ({message.author.id}) in channel {channel_id}")
             game.closest_offset = offset
             game.winning_user_id = message.author.id
             self.save_state()
@@ -194,8 +206,9 @@ class NumberGuessBot:
                     )
                 except discord.Forbidden:
                     await channel.send(f"❌ Failed to send DM to <@{game.winning_user_id}>. Please enable DMs.")
+                    logger.warning(f"Failed to send DM to user {game.winning_user_id}: DMs disabled")
                 except Exception as e:
-                    print(f"Error sending DM: {e}")
+                    logger.error(f"Error sending DM to user {game.winning_user_id}: {e}", exc_info=True)
                     await channel.send(f"❌ Failed to send message to <@{game.winning_user_id}>")
         else:
             await channel.send(f"⏰ Round {game.current_round}/{game.total_rounds} ended with no winner!")
@@ -230,7 +243,7 @@ class NumberGuessBot:
         game.paused = False
         self.save_state()
         
-        print(f"Round {game.current_round} started. Number is {game.number}")
+        logger.info(f"Round {game.current_round}/{game.total_rounds} started in channel {game.channel_id}. Number is {game.number}")
 
 
 # Create bot instance
@@ -242,16 +255,16 @@ game_group = app_commands.Group(name="game", description="Number guessing game c
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name} ({bot.user.id})')
+    logger.info(f'Logged in as {bot.user.name} ({bot.user.id})')
     
     # Add the game group to the command tree
     bot.tree.add_command(game_group)
     
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s)")
+        logger.info(f"Synced {len(synced)} command(s)")
     except Exception as e:
-        print(f"Failed to sync commands: {e}")
+        logger.error(f"Failed to sync commands: {e}", exc_info=True)
     
     # Start background task to check for timeouts
     check_timeouts.start()
@@ -275,7 +288,7 @@ async def check_timeouts():
                     if channel:
                         await number_guess_bot.finalize_round(channel, game)
                 except Exception as e:
-                    print(f"Error checking timeout for channel {channel_id}: {e}")
+                    logger.error(f"Error checking timeout for channel {channel_id}: {e}", exc_info=True)
 
 
 @game_group.command(name="init", description="Initialize game settings for this channel")
@@ -412,7 +425,7 @@ async def game_start(interaction: discord.Interaction):
         game.paused = False
         number_guess_bot.save_state()
         
-        print(f"Round {game.current_round} resumed. Number is {game.number}")
+        logger.info(f"Round {game.current_round}/{game.total_rounds} resumed in channel {interaction.channel_id}. Number is {game.number}")
         
         await interaction.response.send_message(
             f"▶️ **Round {game.current_round}/{game.total_rounds} Resumed!**\n"
@@ -528,7 +541,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         )
     else:
         # Log other errors
-        print(f"Command error: {error}")
+        logger.error(f"Command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
         if not interaction.response.is_done():
             await interaction.response.send_message(
                 f"❌ An error occurred: {str(error)}",
@@ -546,11 +559,16 @@ if __name__ == "__main__":
     if not TOKEN:
         # Fall back to command line argument if environment variable not set
         if len(sys.argv) < 2:
-            print("Error: No bot token provided!")
-            print("Please set the BOT_TOKEN environment variable or pass the token as a command line argument.")
-            print("Usage: python main.py <YOUR_BOT_TOKEN>")
+            logger.error("No bot token provided!")
+            logger.error("Please set the BOT_TOKEN environment variable or pass the token as a command line argument.")
+            logger.error("Usage: python main.py <YOUR_BOT_TOKEN>")
             sys.exit(1)
         TOKEN = sys.argv[1]
     
-    print(f"Using data file: {DATA_FILE}")
-    bot.run(TOKEN)
+    logger.info(f"Using data file: {DATA_FILE}")
+    
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        logger.critical(f"Failed to start bot: {e}", exc_info=True)
+        sys.exit(1)
