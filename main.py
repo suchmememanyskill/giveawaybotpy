@@ -217,8 +217,13 @@ class NumberGuessBot:
         if game.current_round < game.total_rounds:
             # Automatically start the next round
             self.start_round(game)
+            
+            # Get the game name for this round
+            game_name = game.keys[game.current_round - 1]['game_name'] if game.current_round <= len(game.keys) else "Unknown"
+            
             await channel.send(
                 f"▶️ **Round {game.current_round}/{game.total_rounds} Starting!**\n"
+                f"🎮 Game: **{game_name}**\n"
                 f"🎲 Guess a number between **{game.min_number}** and **{game.max_number}**!\n"
                 f"⏱️ Time limit: **{game.timeout_minutes}** minutes\n"
                 f"💡 Just type any message with a number in this channel!"
@@ -229,6 +234,7 @@ class NumberGuessBot:
             game.paused = False
             game.current_round = 0
             game.total_rounds = 0
+            game.keys = []
         
         self.save_state()
     
@@ -322,7 +328,6 @@ async def game_init(
     game.min_number = min_number
     game.max_number = max_number
     game.timeout_minutes = timeout_minutes
-    game.keys = []
     game.active = False
     game.paused = False
     game.winning_user_id = None
@@ -354,8 +359,7 @@ async def game_addkey(
     game = number_guess_bot.get_or_create_game(interaction.channel_id)
     
     if game.active:
-        await interaction.response.send_message("❌ Cannot add keys while a game is active!", ephemeral=True)
-        return
+        game.total_rounds += 1
     
     game.keys.append({"game_name": game_name, "key": key})
     number_guess_bot.save_state()
@@ -427,8 +431,12 @@ async def game_start(interaction: discord.Interaction):
         
         logger.info(f"Round {game.current_round}/{game.total_rounds} resumed in channel {interaction.channel_id}. Number is {game.number}")
         
+        # Get the game name for this round
+        game_name = game.keys[game.current_round - 1]['game_name'] if game.current_round <= len(game.keys) else "Unknown"
+        
         await interaction.response.send_message(
             f"▶️ **Round {game.current_round}/{game.total_rounds} Resumed!**\n"
+            f"🎮 Game: **{game_name}**\n"
             f"🎲 Guess a number between **{game.min_number}** and **{game.max_number}**!\n"
             f"⏱️ Time limit: **{game.timeout_minutes}** minutes\n"
             f"💡 Just type any message with a number in this channel!"
@@ -445,10 +453,14 @@ async def game_start(interaction: discord.Interaction):
     game.current_round = 0
     number_guess_bot.start_round(game)
     
+    # Get the game name for round 1
+    game_name = game.keys[0]['game_name'] if len(game.keys) > 0 else "Unknown"
+    
     await interaction.response.send_message(
         f"🎮 **Number Guessing Game Started!**\n"
         f"🏆 Total rounds: **{game.total_rounds}**\n\n"
         f"▶️ **Round 1/{game.total_rounds}**\n"
+        f"🎮 Game: **{game_name}**\n"
         f"🎲 Guess a number between **{game.min_number}** and **{game.max_number}**!\n"
         f"⏱️ Time limit: **{game.timeout_minutes}** minutes per round\n"
         f"💡 Just type any message with a number in this channel!"
