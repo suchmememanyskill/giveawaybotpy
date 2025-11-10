@@ -343,6 +343,52 @@ async def game_init(
         ephemeral=True
     )
 
+@game_group.command(name="addkeymulti", description="Add multiple game keys for rounds")
+@app_commands.describe(
+    file="File that contains game keys in the format 'Game Name Key', one per line. Line will be split on the last space."
+)
+@app_commands.checks.has_permissions(manage_messages=True)
+async def game_addkeymulti(
+    interaction: discord.Interaction,
+    file: discord.Attachment
+):
+    """Add multiple game keys from a file"""
+    game = number_guess_bot.get_or_create_game(interaction.channel_id)
+    
+    try:
+        file_content = await file.read()
+        lines = file_content.decode('utf-8').splitlines()
+        prettyprint = []
+        
+        added_count = 0
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Split on the last space to separate game name and key
+            if ' ' not in line:
+                continue
+            game_name, key = line.rsplit(' ', 1)
+            game.keys.append({"game_name": game_name.strip(), "key": key.strip()})
+            added_count += 1
+            prettyprint.append(f"- {game_name.strip()}")
+        
+        if game.active:
+            game.total_rounds += added_count
+
+        number_guess_bot.save_state()
+        
+        await interaction.response.send_message(
+            f"✅ Added {added_count} keys! Total keys: **{len(game.keys)}**\n{'\n'.join(prettyprint)}",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        logger.error(f"Error adding multiple keys: {e}", exc_info=True)
+        await interaction.response.send_message(
+            "❌ Failed to add keys from the file. Please ensure it is formatted correctly.",
+            ephemeral=True
+        )
 
 @game_group.command(name="addkey", description="Add a game key for a round")
 @app_commands.describe(
